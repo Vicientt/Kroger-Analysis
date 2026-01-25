@@ -23,7 +23,7 @@ class KrogerAPI:
     
     def auth(self):
         """Authenticate with Kroger API"""
-        print("🔐 Authenticating...")
+        print("Authenticating...")
         url = f"{self.base_url}/connect/oauth2/token"
         data = {
             "grant_type": "client_credentials",
@@ -40,12 +40,12 @@ class KrogerAPI:
             )
             if resp.status_code == 200:
                 self.token = resp.json().get("access_token")
-                print("✅ Authenticated!")
+                print("Authenticated!")
                 return True
-            print(f"❌ Auth failed: {resp.status_code}")
+            print(f"Auth failed: {resp.status_code}")
             return False
         except Exception as e:
-            print(f"❌ Auth Error: {e}")
+            print(f"Auth Error: {e}")
             return False
 
     def get_largest_store_per_state(self, state_zip_codes):
@@ -53,7 +53,7 @@ class KrogerAPI:
         if not self.token:
             return {}
         
-        print("📍 Fetching LARGEST store per state...")
+        print("Fetching LARGEST store per state...")
         largest_stores = {}
         
         for state, zip_code in state_zip_codes.items():
@@ -185,7 +185,7 @@ def save_all_products_csv(all_products_data, filename="all_products.csv"):
                             'Size': first_item.get('size', 'N/A')
                         })
         
-        print(f"💾 Saved: {filepath}")
+        print(f"Saved: {filepath}")
         return True
     except Exception as e:
         print(f"Error saving CSV: {e}")
@@ -227,7 +227,7 @@ def save_state_summary_csv(all_products_data, filename="state_summary.csv"):
                     'Categories Found': categories_found
                 })
         
-        print(f"💾 Saved: {filepath}")
+        print(f"Saved: {filepath}")
         return True
     except Exception as e:
         print(f"Error saving summary: {e}")
@@ -291,7 +291,7 @@ def save_raw_json(all_products_data, filename="products_raw.json"):
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(all_products_data, f, ensure_ascii=False, indent=2)
-        print(f"💾 Saved: {filepath}")
+        print(f"Saved: {filepath}")
         return True
     except Exception as e:
         print(f"Error saving JSON: {e}")
@@ -388,8 +388,8 @@ def main():
         "snacks", "chips", "cookies", "nuts", "pasta sauce", "canned goods", "honey", "peanut butter"
     ]
     
-    print(f"\n🔍 Categories: {len(search_terms)}")
-    print(f"📊 Products per category: 200 (using pagination)")
+    print(f"\nCategories: {len(search_terms)}")
+    print(f"Products per category: 200 (using pagination)")
     print(f"Note: 200 products = 4 API calls per search\n")
     
     all_products_data = []
@@ -425,7 +425,7 @@ def main():
             else:
                 print(f"{term}: 0 products")
         
-        print(f"   📊 Total for {state}: {store_product_count} products")
+        print(f"Total for {state}: {store_product_count} products")
         
         all_products_data.append({
             'state': state,
