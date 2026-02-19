@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Run dbt with DBT_PROFILES_DIR set. Usage: ./dbt run  or  uv run ./dbt run
+cd "$(dirname "$0")/kroger_analysis" && DBT_PROFILES_DIR=. uv run dbt "$@"

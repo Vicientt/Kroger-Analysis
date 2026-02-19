@@ -1,0 +1,32 @@
+[0m12:00:11.293279 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x76a8e6298980>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x76a8e7d4c050>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x76a8e540bc50>]}
+
+
+============================== 12:00:11.303303 | 2ba15fcf-e925-45c0-ac1d-cfde83f965c9 ==============================
+[0m12:00:11.303303 [info ] [MainThread]: Running with dbt=1.11.5
+[0m12:00:11.304770 [debug] [MainThread]: running dbt with arguments {'empty': 'False', 'introspect': 'True', 'version_check': 'True', 'cache_selected_only': 'False', 'write_json': 'True', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'static_parser': 'True', 'no_print': 'None', 'log_cache_events': 'False', 'indirect_selection': 'eager', 'log_path': 'logs', 'quiet': 'False', 'partial_parse': 'True', 'use_colors': 'True', 'profiles_dir': '/home/hoan/.dbt', 'invocation_command': 'dbt run', 'warn_error': 'None', 'use_experimental_parser': 'False', 'send_anonymous_usage_stats': 'True', 'fail_fast': 'False', 'target_path': 'None', 'printer_width': '80', 'log_format': 'default', 'debug': 'False'}
+[0m12:00:11.305973 [error] [MainThread]: Encountered an error:
+Runtime Error
+  No dbt_project.yml found at expected path /home/hoan/VSCode/projects/Kroger-Analysis/dbt_project.yml
+  Verify that each entry within packages.yml (and their transitive dependencies) contains a file named dbt_project.yml
+  
+[0m12:00:11.307351 [debug] [MainThread]: Resource report: {"command_name": "run", "command_success": false, "command_wall_clock_time": 0.112906985, "process_in_blocks": "8", "process_kernel_time": 0.223372, "process_mem_max_rss": "100236", "process_out_blocks": "8", "process_user_time": 1.975079}
+[0m12:00:11.308429 [debug] [MainThread]: Command `dbt run` failed at 12:00:11.307985 after 0.11 seconds
+[0m12:00:11.309194 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x76a8e5421ba0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x76a8e5236570>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x76a8e5280160>]}
+[0m12:00:11.309969 [debug] [MainThread]: Flushing usage events
+[0m12:00:11.548224 [debug] [MainThread]: An error was encountered while trying to flush usage events
+[0m12:00:41.335516 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d4c50698980>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d4c5214c050>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d4c4f807c50>]}
+
+
+============================== 12:00:41.342594 | a14a1b94-84f9-4cfe-9443-e2fa874c9a19 ==============================
+[0m12:00:41.342594 [info ] [MainThread]: Running with dbt=1.11.5
+[0m12:00:41.343585 [debug] [MainThread]: running dbt with arguments {'empty': 'False', 'static_parser': 'True', 'introspect': 'True', 'fail_fast': 'False', 'use_experimental_parser': 'False', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'log_format': 'default', 'log_path': 'logs', 'debug': 'False', 'log_cache_events': 'False', 'version_check': 'True', 'profiles_dir': '/home/hoan/.dbt', 'invocation_command': 'dbt run', 'printer_width': '80', 'send_anonymous_usage_stats': 'True', 'cache_selected_only': 'False', 'indirect_selection': 'eager', 'write_json': 'True', 'no_print': 'None', 'target_path': 'None', 'quiet': 'False', 'use_colors': 'True', 'partial_parse': 'True', 'warn_error': 'None'}
+[0m12:00:41.344502 [error] [MainThread]: Encountered an error:
+Runtime Error
+  No dbt_project.yml found at expected path /home/hoan/VSCode/projects/Kroger-Analysis/dbt_project.yml
+  Verify that each entry within packages.yml (and their transitive dependencies) contains a file named dbt_project.yml
+  
+[0m12:00:41.345779 [debug] [MainThread]: Resource report: {"command_name": "run", "command_success": false, "command_wall_clock_time": 0.11198077, "process_in_blocks": "0", "process_kernel_time": 0.255078, "process_mem_max_rss": "100280", "process_out_blocks": "16", "process_user_time": 2.099494}
+[0m12:00:41.346583 [debug] [MainThread]: Command `dbt run` failed at 12:00:41.346411 after 0.11 seconds
+[0m12:00:41.347222 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d4c4f81dba0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d4c4f632570>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x7d4c4f67c160>]}
+[0m12:00:41.347909 [debug] [MainThread]: Flushing usage events
+[0m12:00:41.551097 [debug] [MainThread]: An error was encountered while trying to flush usage events
