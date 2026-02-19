@@ -1,0 +1,5 @@
+version: 2
+
+models:
+  - name: mart_product_analysis
+    description: Product-level analysis with computed columns

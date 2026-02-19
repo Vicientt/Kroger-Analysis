@@ -1,0 +1,12 @@
+version: 2
+
+# Source: Raw Kroger data loaded from main.py into DuckDB
+# Table: raw.kroger_products_raw
+# Each row = one state; raw_data (JSON) contains full JSON
+sources:
+  - name: kroger_raw
+    schema: raw
+    description: Raw Kroger product data from API (one row per state)
+    tables:
+      - name: kroger_products_raw
+        description: "Raw JSON in raw_data column; structure: state, store_id, store_name, search_results array"
