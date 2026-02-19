@@ -57,7 +57,7 @@ Kroger API
 
 ### profiles.yml
 
-The project includes `kroger_analysis/profiles.yml` so you don't need to configure `~/.dbt/profiles.yml`. Use `DBT_PROFILES_DIR=.` when running dbt from `kroger_analysis/` to use the local profile.
+The project includes `kroger_analysis/profiles.yml` so you don't need to configure `~/.dbt/profiles.yml`. Use the `./dbt` script from project root (e.g. `./dbt run`) to run dbt with the local profile.
 
 ---
 
@@ -87,7 +87,7 @@ kroger-analysis/
 uv run main.py
 
 # 2. Transform
-cd kroger_analysis && DBT_PROFILES_DIR=. uv run dbt run
+./dbt run
 ```
 
 ---
@@ -296,7 +296,7 @@ After running `dbt run`:
 uv run main.py
 
 # Step 2: Transform
-cd kroger_analysis && DBT_PROFILES_DIR=. uv run dbt run
+./dbt run
 ```
 
 The script will:
