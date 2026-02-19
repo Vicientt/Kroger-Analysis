@@ -8,3 +8,7 @@ kroger_analysis:
     dev:
       type: duckdb
       path: ../data/kroger.duckdb
+      settings:
+        threads: 4
+        preserve_insertion_order: false
+        memory_limit: "8GB"
