@@ -1,6 +1,0 @@
-{
-  "dbt.dbtPath": "/home/hoan/.local/bin/dbt",
-  "dbt.environmentVariables": {
-    "DBT_PROFILES_DIR": "${workspaceFolder}/kroger_analysis"
-  }
-}
