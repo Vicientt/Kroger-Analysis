@@ -1,0 +1,14 @@
+# dbt profile for Kroger Analysis (DuckDB)
+# Used when running dbt from kroger_analysis/ with DBT_PROFILES_DIR=.
+# Path is relative to kroger_analysis/ (parent/data/kroger.duckdb)
+
+kroger_analysis:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../data/kroger.duckdb
+      settings:
+        threads: 4
+        preserve_insertion_order: false
+        memory_limit: "8GB"

@@ -1,0 +1,5 @@
+version: 2
+
+models:
+  - name: mart_state_summary
+    description: Summary by state - total products, unique brands, categories found

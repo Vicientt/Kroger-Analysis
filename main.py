@@ -1,17 +1,19 @@
 """
-Kroger API - With Pagination Support
-Get 200+ products per category using pagination
+Kroger API - Extract & Load to DuckDB
+Get 200+ products per category using pagination, load raw data to DuckDB.
 """
 
-import requests
-import csv
 import json
 import os
 from pathlib import Path
-from datetime import datetime
+
+import duckdb
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
+
+DB_PATH = Path(__file__).resolve().parent / "data" / "kroger.duckdb"
 
 class KrogerAPI:
     def __init__(self):
@@ -48,45 +50,67 @@ class KrogerAPI:
             print(f"Auth Error: {e}")
             return False
 
+    def _store_has_products(self, location_id: str) -> bool:
+        """Quick check: does this store return any products?"""
+        products = self.search_products(term="milk", location_id=location_id, limit=1)
+        return len(products) > 0
+
     def get_largest_store_per_state(self, state_zip_codes):
-        """Get the largest store per state"""
+        """
+        Get store per state: fetches locations (by distance), validates products.
+        Skips state if no store returns products.
+        """
         if not self.token:
             return {}
-        
-        print("Fetching LARGEST store per state...")
+
+        print("Fetching stores per state (validating product availability)...")
         largest_stores = {}
-        
+
         for state, zip_code in state_zip_codes.items():
             headers = {"Authorization": f"Bearer {self.token}"}
             params = {
                 "filter.zipCode.near": zip_code,
                 "filter.radiusInMiles": 100,
-                "filter.limit": 10
+                "filter.limit": 50,
             }
-            
+
             try:
                 resp = requests.get(
                     f"{self.base_url}/locations",
                     headers=headers,
-                    params=params
+                    params=params,
                 )
-                
-                if resp.status_code == 200:
-                    locations = resp.json().get("data", [])
-                    if locations:
-                        largest_store = locations[0]
-                        store_name = largest_store.get('name', 'Unknown')
-                        store_id = largest_store.get('locationId', 'N/A')
-                        largest_stores[state] = largest_store
-                        print(f"{state}: {store_name}")
-                    else:
-                        print(f"{state}: No stores found")
-                else:
+
+                if resp.status_code != 200:
                     print(f"{state}: API error {resp.status_code}")
-            
+                    continue
+
+                locations = resp.json().get("data", [])
+                if not locations:
+                    print(f"{state}: No stores found")
+                    continue
+
+                # Try each store until one returns products; if none do, skip state
+                chosen = None
+                max_tries = 20  # Cap to limit API calls; increase if needed
+                for store in locations[:max_tries]:
+                    store_id = store.get("locationId")
+                    store_name = store.get("name", "Unknown")
+                    if self._store_has_products(store_id):
+                        chosen = store
+                        print(f"{state}: {store_name} (validated)")
+                        break
+                    print(f"  {state}: {store_name} - no products, trying next...")
+
+                if chosen:
+                    largest_stores[state] = chosen
+                else:
+                    # Skip state: no store in this state returns products
+                    print(f"{state}: SKIPPED - no store with products found (tried {min(max_tries, len(locations))} stores)")
+
             except Exception as e:
                 print(f"{state}: Error - {e}")
-        
+
         return largest_stores
 
     def search_products(self, term, location_id, limit=200):
@@ -145,163 +169,49 @@ class KrogerAPI:
         
         return all_products
 
-def save_all_products_csv(all_products_data, filename="all_products.csv"):
-    """Save all products to CSV"""
-    Path("data").mkdir(exist_ok=True)
-    filepath = f"data/{filename}"
-    
-    try:
-        with open(filepath, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=[
-                'State', 'Store Name', 'Store ID', 'Product Category', 'Product ID',
-                'Description', 'Brand', 'Regular Price', 'Promo Price', 'Size'
-            ])
-            writer.writeheader()
-            
-            for state_data in all_products_data:
-                state = state_data['state']
-                store_name = state_data['store_name']
-                store_id = state_data['store_id']
-                
-                for search_cat in state_data['search_results']:
-                    category = search_cat['term']
-                    products = search_cat['products']
-                    
-                    for p in products:
-                        items = p.get('items', [])
-                        first_item = items[0] if items else {}
-                        price_info = first_item.get('price', {})
-                        
-                        writer.writerow({
-                            'State': state,
-                            'Store Name': store_name,
-                            'Store ID': store_id,
-                            'Product Category': category,
-                            'Product ID': p.get('productId'),
-                            'Description': p.get('description'),
-                            'Brand': p.get('brand'),
-                            'Regular Price': price_info.get('regular', 'N/A'),
-                            'Promo Price': price_info.get('promo', 'N/A'),
-                            'Size': first_item.get('size', 'N/A')
-                        })
-        
-        print(f"Saved: {filepath}")
-        return True
-    except Exception as e:
-        print(f"Error saving CSV: {e}")
+def load_to_duckdb(all_products_data):
+    """
+    Load raw product data into DuckDB raw.kroger_products_raw table.
+    Inserts one row per state; raw_data column stores the full JSON for that state.
+    """
+    if not all_products_data:
+        print("No data to load to DuckDB.")
         return False
 
-def save_state_summary_csv(all_products_data, filename="state_summary.csv"):
-    """Save summary per state"""
-    Path("data").mkdir(exist_ok=True)
-    filepath = f"data/{filename}"
-    
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = duckdb.connect(str(DB_PATH))
     try:
-        with open(filepath, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=[
-                'State', 'Store Name', 'Total Products', 'Unique Brands', 'Categories Found'
-            ])
-            writer.writeheader()
-            
-            for state_data in all_products_data:
-                all_products = []
-                all_brands = set()
-                categories_found = 0
-                
-                for search_cat in state_data['search_results']:
-                    products = search_cat['products']
-                    if products:
-                        categories_found += 1
-                        all_products.extend(products)
-                        
-                        for p in products:
-                            brand = p.get('brand')
-                            if brand:
-                                all_brands.add(brand)
-                
-                writer.writerow({
-                    'State': state_data['state'],
-                    'Store Name': state_data['store_name'],
-                    'Total Products': len(all_products),
-                    'Unique Brands': len(all_brands),
-                    'Categories Found': categories_found
-                })
-        
-        print(f"Saved: {filepath}")
+        # Ensure table exists
+        conn.execute("CREATE SCHEMA IF NOT EXISTS raw")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS raw.kroger_products_raw (
+                id INTEGER PRIMARY KEY,
+                loaded_at TIMESTAMP DEFAULT current_timestamp,
+                raw_data JSON
+            )
+        """)
+        # Get next id
+        result = conn.execute(
+            "SELECT COALESCE(MAX(id), 0) + 1 FROM raw.kroger_products_raw"
+        ).fetchone()
+        next_id = result[0]
+        for i, state_data in enumerate(all_products_data):
+            conn.execute(
+                """
+                INSERT INTO raw.kroger_products_raw (id, raw_data)
+                VALUES (?, ?)
+                """,
+                [next_id + i, json.dumps(state_data)],
+            )
+        print(f"Loaded {len(all_products_data)} state(s) to DuckDB raw.kroger_products_raw")
         return True
     except Exception as e:
-        print(f"Error saving summary: {e}")
+        print(f"Error loading to DuckDB: {e}")
         return False
+    finally:
+        conn.close()
 
-def save_category_summary_csv(all_products_data, filename="category_summary.csv"):
-    """Save summary per category"""
-    Path("data").mkdir(exist_ok=True)
-    filepath = f"data/{filename}"
-    
-    try:
-        category_stats = {}
-        
-        for state_data in all_products_data:
-            for search_cat in state_data['search_results']:
-                term = search_cat['term']
-                products = search_cat['products']
-                
-                if term not in category_stats:
-                    category_stats[term] = {
-                        'total_products': 0,
-                        'states_with_products': 0,
-                        'brands': set()
-                    }
-                
-                if products:
-                    category_stats[term]['total_products'] += len(products)
-                    category_stats[term]['states_with_products'] += 1
-                    
-                    for p in products:
-                        brand = p.get('brand')
-                        if brand:
-                            category_stats[term]['brands'].add(brand)
-        
-        with open(filepath, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=[
-                'Category', 'Total Products', 'States with Products', 'Unique Brands'
-            ])
-            writer.writeheader()
-            
-            for term in sorted(category_stats.keys()):
-                stats = category_stats[term]
-                writer.writerow({
-                    'Category': term,
-                    'Total Products': stats['total_products'],
-                    'States with Products': stats['states_with_products'],
-                    'Unique Brands': len(stats['brands'])
-                })
-        
-        print(f"Saved: {filepath}")
-        return True
-    except Exception as e:
-        print(f"Error saving category summary: {e}")
-        return False
-
-def save_raw_json(all_products_data, filename="products_raw.json"):
-    """Save raw data as JSON"""
-    Path("data").mkdir(exist_ok=True)
-    filepath = f"data/{filename}"
-    
-    try:
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(all_products_data, f, ensure_ascii=False, indent=2)
-        print(f"Saved: {filepath}")
-        return True
-    except Exception as e:
-        print(f"Error saving JSON: {e}")
-        return False
-
-def main():
-    print("=" * 90)
-    print("   KROGER API - WITH PAGINATION (100+ PRODUCTS PER CATEGORY)")
-    print("=" * 90 + "\n")
-    
+def main():    
     # Initialize API
     api = KrogerAPI()
     if not api.auth():
@@ -312,49 +222,46 @@ def main():
         # West
         "California": "90210",
         "Washington": "98101",
-        # "Oregon": "97201",
-        # "Nevada": "89101",
-        # "Arizona": "85001",
-        # "New Mexico": "87101",
-        # "Utah": "84101",
-        # "Colorado": "80201",
-        # "Wyoming": "82001",
-        # "Idaho": "83702",
-        # "Montana": "59101",
+        "Oregon": "97201",
+        "Nevada": "89101",
+        "Arizona": "85001",
+        "New Mexico": "87101",
+        "Utah": "84101",
+        "Colorado": "80201",
+        "Wyoming": "82001",
+        "Idaho": "83702",
+        "Montana": "59101",
         
-        # # Midwest
-        # "Ohio": "44101",
-        # "Indiana": "46201",
-        # "Illinois": "60601",
-        # "Michigan": "48201",
-        # "Wisconsin": "53201",
-        # "Minnesota": "55401",
-        # "Missouri": "63101",
-        # "Kansas": "66101",
-        # "Nebraska": "68102",
-        # "Iowa": "50301",
+        # Midwest
+        "Ohio": "44101",
+        "Indiana": "46201",
+        "Illinois": "60601",
+        "Michigan": "48201",
+        "Wisconsin": "53201",
+        "Minnesota": "55401",
+        "Missouri": "63101",
+        "Kansas": "66101",
+        "Nebraska": "68102",
+        "Iowa": "50301",
         
-        # # South
-        # "Texas": "75001",
-        # "Oklahoma": "73102",
-        # "Louisiana": "70112",
-        # "Arkansas": "72201",
-        # "Tennessee": "37201",
-        # "Kentucky": "40202",
-        # "Virginia": "23510",
-        # "West Virginia": "25301",
-        # "North Carolina": "28202",
-        # "South Carolina": "29201",
-        # "Georgia": "30303",
-        # "Florida": "33101",
-        # "Alabama": "35203",
-        # "Mississippi": "39201",
+        # South
+        "Texas": "75001",
+        "Oklahoma": "73102",
+        "Louisiana": "70112",
+        "Arkansas": "72201",
+        "Tennessee": "37201",
+        "Kentucky": "40202",
+        "Virginia": "23510",
+        "West Virginia": "25301",
+        "North Carolina": "28202",
+        "South Carolina": "29201",
+        "Georgia": "30303",
+        "Florida": "33101",
+        "Alabama": "35203",
+        "Mississippi": "39201",
     }
     
     # --- STEP 1: Get largest store per state ---
-    print("\n" + "=" * 90)
-    print("STEP 1: FINDING LARGEST STORE IN EACH STATE")
-    print("=" * 90 + "\n")
     
     largest_stores = api.get_largest_store_per_state(state_zip_codes)
     print(f"\nFound {len(largest_stores)}/{len(state_zip_codes)} states with stores\n")
@@ -364,9 +271,6 @@ def main():
         return
     
     # --- STEP 2: Define categories ---
-    print("=" * 90)
-    print("STEP 2: SEARCHING CATEGORIES (WITH PAGINATION)")
-    print("=" * 90)
     
     search_terms = [
         # FRESH FOODS (6)
@@ -389,8 +293,6 @@ def main():
     ]
     
     print(f"\nCategories: {len(search_terms)}")
-    print(f"Products per category: 200 (using pagination)")
-    print(f"Note: 200 products = 4 API calls per search\n")
     
     all_products_data = []
     total_products = 0
@@ -399,7 +301,7 @@ def main():
         store_id = store.get('locationId')
         store_name = store.get('name')
         
-        print(f"\n[{state}] 🏢 {store_name}")
+        print(f"\n[{state}] {store_name}")
         
         store_search_results = []
         store_product_count = 0
@@ -409,7 +311,7 @@ def main():
             products = api.search_products(
                 term=term,
                 location_id=store_id,
-                limit=200  # Now supports 100+!
+                limit=200
             )
             
             if products:
@@ -434,16 +336,12 @@ def main():
             'search_results': store_search_results
         })
     
-    # --- STEP 3: Save data ---
+    # --- STEP 3: Load to DuckDB ---
     print("\n" + "=" * 90)
-    print("STEP 3: SAVING DATA")
+    print("STEP 3: LOADING TO DUCKDB")
     print("=" * 90 + "\n")
-    
-    # Save without timestamp - will overwrite existing files
-    save_all_products_csv(all_products_data, "all_products.csv")
-    save_state_summary_csv(all_products_data, "state_summary.csv")
-    save_category_summary_csv(all_products_data, "category_summary.csv")
-    save_raw_json(all_products_data, "products_raw.json")
+
+    load_to_duckdb(all_products_data)
     
     # --- Summary ---
     print("\n" + "=" * 90)
@@ -456,11 +354,7 @@ def main():
     print(f"   Total API calls: {api.api_calls}")
     print(f"   Total unique products: {total_products}")
     
-    print(f"\nFiles saved in data/ directory:")
-    print(f"   1. all_products.csv")
-    print(f"   2. state_summary.csv")
-    print(f"   3. category_summary.csv")
-    print(f"   4. products_raw.json")
+    print(f"\nData loaded to: data/kroger.duckdb (raw.kroger_products_raw)")
     
     print(f"\nAPI Rate Limit: 10,000 calls/day")
     print(f"   Used: {api.api_calls} calls")
