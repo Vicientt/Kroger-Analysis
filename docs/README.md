@@ -49,7 +49,6 @@ Kroger-Analysis/
 ├── dbt                  # dbt wrapper script (./dbt run)
 ├── pyproject.toml       # Python deps (uv)
 ├── uv.lock
-├── .env.example         # Template for credentials
 ├── kroger_analysis/     # dbt project
 │   ├── profiles.yml    # Local profile (no ~/.dbt needed)
 │   └── models/
@@ -95,11 +94,7 @@ uv sync
 
 ### 3. Environment Variables
 
-Copy `.env.example` to `.env` and fill in credentials:
-
-```bash
-cp .env.example .env
-```
+Create `.env` in project root:
 
 ```env
 KROGER_CLIENT_ID=your_client_id
