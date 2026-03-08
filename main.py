@@ -3,8 +3,10 @@ Kroger API - Extract & Load to DuckDB
 Get 200+ products per category using pagination, load raw data to DuckDB.
 """
 
+import csv
 import json
 import os
+from datetime import date
 from pathlib import Path
 
 import duckdb
@@ -14,6 +16,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DB_PATH = Path(__file__).resolve().parent / "data" / "kroger.duckdb"
+STAGING_DIR = Path(__file__).resolve().parent / "data" / "staging"  # one dir per day
+
+
+def get_load_date():
+    return date.today().strftime("%Y-%m-%d")
 
 class KrogerAPI:
     def __init__(self):
@@ -32,7 +39,6 @@ class KrogerAPI:
             "scope": "product.compact"
         }
         headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        
         try:
             resp = requests.post(
                 url,
@@ -49,6 +55,12 @@ class KrogerAPI:
         except Exception as e:
             print(f"Auth Error: {e}")
             return False
+
+    def _ensure_token(self):
+        """Refresh token if expired (401). Token lasts ~30 min."""
+        if self.auth():
+            return True
+        return False
 
     def _store_has_products(self, location_id: str) -> bool:
         """Quick check: does this store return any products?"""
@@ -149,25 +161,103 @@ class KrogerAPI:
                     headers=headers,
                     params=params
                 )
+                if resp.status_code == 401:
+                    print("  Token expired, refreshing...")
+                    if self._ensure_token():
+                        headers = {"Authorization": f"Bearer {self.token}"}
+                        resp = requests.get(f"{self.base_url}/products", headers=headers, params=params)
                 if resp.status_code == 200:
                     products = resp.json().get("data", [])
                     if not products:
-                        # No more products available
                         break
                     all_products.extend(products)
-                    
-                    # Stop if we have enough
                     if len(all_products) >= limit:
                         all_products = all_products[:limit]
                         break
                 else:
+                    print(f"  Products API {resp.status_code} (term={term})")
                     break
-            
             except Exception as e:
                 print(f"Error on page {page}: {e}")
                 break
         
         return all_products
+
+
+def flatten_to_csv_rows(all_products_data):
+    """squash api response into flat rows"""
+    rows = []
+    for state_data in all_products_data:
+        state = state_data.get("state", "")
+        store_id = state_data.get("store_id", "")
+        store_name = state_data.get("store_name", "")
+        for sr in state_data.get("search_results", []):
+            category = sr.get("term", "")
+            for p in sr.get("products", []):
+                items = p.get("items", [])
+                price = items[0].get("price", {}) if items else {}
+                price = price if isinstance(price, dict) else {}
+                rows.append({
+                    "State": state,
+                    "Store Name": store_name,
+                    "Store ID": store_id,
+                    "Product Category": category,
+                    "Product ID": p.get("productId", ""),
+                    "Description": p.get("description", ""),
+                    "Brand": p.get("brand", ""),
+                    "Regular Price": str(price.get("regular", "") or ""),
+                    "Promo Price": str(price.get("promo", "") or ""),
+                    "Size": items[0].get("size", "") if items else "",
+                })
+    return rows
+
+
+def save_to_staging_csv(rows, load_date_str):
+    """dump to data/staging/YYYY-MM-DD/products.csv"""
+    dir_path = STAGING_DIR / load_date_str
+    dir_path.mkdir(parents=True, exist_ok=True)
+    csv_path = dir_path / "products.csv"
+    if not rows:
+        print("No rows to save.")
+        return None
+    fieldnames = ["State", "Store Name", "Store ID", "Product Category", "Product ID", "Description", "Brand", "Regular Price", "Promo Price", "Size"]
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"Saved {len(rows)} rows to {csv_path}")
+    return csv_path
+
+
+def load_csv_to_duckdb(csv_path, load_date_str):
+    """create table per day, rebuild union view"""
+    table_name = f"kroger_products_{load_date_str.replace('-', '_')}"
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = duckdb.connect(str(DB_PATH))
+    try:
+        conn.execute("CREATE SCHEMA IF NOT EXISTS raw")
+        conn.execute(f"""
+            CREATE OR REPLACE TABLE raw.{table_name} AS
+            SELECT *, '{load_date_str}'::DATE as load_date
+            FROM read_csv_auto('{csv_path}', header=true)
+        """)
+        tables = conn.execute("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'raw' AND table_name LIKE 'kroger_products_20%'
+            ORDER BY table_name
+        """).fetchall()
+        union_parts = [f"SELECT * FROM raw.{t[0]}" for t in tables]
+        if union_parts:
+            union_sql = "CREATE OR REPLACE VIEW raw.kroger_products_all AS " + " UNION ALL ".join(union_parts)
+            conn.execute(union_sql)
+        print(f"Loaded {table_name} from {csv_path}")
+        return True
+    except Exception as e:
+        print(f"Error loading to DuckDB: {e}")
+        return False
+    finally:
+        conn.close()
+
 
 def load_to_duckdb(all_products_data):
     """
@@ -217,48 +307,40 @@ def main():
     if not api.auth():
         return
     
-    # Test with 3 states only (to keep API calls low)
+    # 32 states with Kroger products
     state_zip_codes = {
-        # West
-        "California": "90210",
-        "Washington": "98101",
-        "Oregon": "97201",
-        "Nevada": "89101",
-        "Arizona": "85001",
-        "New Mexico": "87101",
-        "Utah": "84101",
-        "Colorado": "80201",
-        "Wyoming": "82001",
-        "Idaho": "83702",
-        "Montana": "59101",
-        
-        # Midwest
-        "Ohio": "44101",
-        "Indiana": "46201",
-        "Illinois": "60601",
-        "Michigan": "48201",
-        "Wisconsin": "53201",
-        "Minnesota": "55401",
-        "Missouri": "63101",
-        "Kansas": "66101",
-        "Nebraska": "68102",
-        "Iowa": "50301",
-        
-        # South
-        "Texas": "75001",
-        "Oklahoma": "73102",
-        "Louisiana": "70112",
-        "Arkansas": "72201",
-        "Tennessee": "37201",
-        "Kentucky": "40202",
-        "Virginia": "23510",
-        "West Virginia": "25301",
-        "North Carolina": "28202",
-        "South Carolina": "29201",
-        "Georgia": "30303",
-        "Florida": "33101",
         "Alabama": "35203",
+        "Arizona": "85001",
+        "Arkansas": "72201",
+        "California": "90210",
+        "Colorado": "80201",
+        "Florida": "32202",
+        "Georgia": "30303",
+        "Idaho": "83702",
+        "Illinois": "60601",
+        "Indiana": "46201",
+        "Kansas": "66101",
+        "Kentucky": "40202",
+        "Louisiana": "70801",   # Baton Rouge, NOLA had 0
+        "Michigan": "48201",
         "Mississippi": "39201",
+        "Missouri": "64101",   # KC, St Louis stores didnt validate
+        "Nebraska": "68102",
+        "Nevada": "89101",
+        "New Mexico": "87101",
+        "North Carolina": "28202",
+        "Ohio": "45202",
+        "Oklahoma": "74101",   
+        "Oregon": "97201",
+        "South Carolina": "29201",
+        "Tennessee": "37201",
+        "Texas": "77001",
+        "Utah": "84101",
+        "Virginia": "23510",
+        "Washington": "98101",
+        "West Virginia": "25301",
+        "Wisconsin": "53201",
+        "Wyoming": "82001",
     }
     
     # --- STEP 1: Get largest store per state ---
@@ -336,12 +418,16 @@ def main():
             'search_results': store_search_results
         })
     
-    # --- STEP 3: Load to DuckDB ---
+    # --- STEP 3: staging csv + load to duckdb ---
     print("\n" + "=" * 90)
-    print("STEP 3: LOADING TO DUCKDB")
+    print("STEP 3: STAGING CSV + LOADING TO DUCKDB")
     print("=" * 90 + "\n")
 
-    load_to_duckdb(all_products_data)
+    load_date_str = get_load_date()
+    rows = flatten_to_csv_rows(all_products_data)
+    csv_path = save_to_staging_csv(rows, load_date_str)
+    if csv_path:
+        load_csv_to_duckdb(str(csv_path), load_date_str)
     
     # --- Summary ---
     print("\n" + "=" * 90)
@@ -354,7 +440,7 @@ def main():
     print(f"   Total API calls: {api.api_calls}")
     print(f"   Total unique products: {total_products}")
     
-    print(f"\nData loaded to: data/kroger.duckdb (raw.kroger_products_raw)")
+    print(f"\nData loaded to: data/staging/{load_date_str}/products.csv -> raw.kroger_products_{load_date_str.replace('-', '_')}")
     
     print(f"\nAPI Rate Limit: 10,000 calls/day")
     print(f"   Used: {api.api_calls} calls")
