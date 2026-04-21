@@ -1,6 +1,6 @@
 # Kroger Analysis - Extract, Load & Transform (ELT) Pipeline
 
-ELT pipeline using the **Kroger Products API** and **DuckDB**. Collects product-level data across 33 categories and 32 states, writes to CSV staging, loads into DuckDB, then transforms with dbt.
+ELT pipeline using the **Kroger Products API** and **DuckDB**. Collects product-level data across 33 categories and 32 states, writes to Parquet staging, loads into DuckDB, then transforms with dbt.
 
 ---
 
@@ -9,7 +9,7 @@ ELT pipeline using the **Kroger Products API** and **DuckDB**. Collects product-
 - **API interaction:** Kroger Locations API + Products API
 - **Pagination:** 200 products per category (4 pages of 50)
 - **Store validation:** Skip states with no product-available stores
-- **Staging:** CSV per day in `data/staging/YYYY-MM-DD/products.csv`
+- **Staging:** Parquet per day in `data/staging/YYYY-MM-DD/products.parquet`
 - **Load:** Raw tables `raw.kroger_products_YYYY_MM_DD` (one per day)
 - **Transform:** dbt staging views and mart tables
 
@@ -27,7 +27,7 @@ Locations API -> validated store per state (32 states)
 Products API (33 categories, 200 products each)
     |
     v
-data/staging/YYYY-MM-DD/products.csv
+data/staging/YYYY-MM-DD/products.parquet
     |
     v
 DuckDB raw.kroger_products_YYYY_MM_DD
@@ -45,7 +45,7 @@ dbt: staging.stg_kroger_products -> mart.*
 
 ```
 Kroger-Analysis/
-├── main.py              # Extract + Load (API -> CSV -> DuckDB)
+├── main.py              # Extract + Load (API -> Parquet -> DuckDB)
 ├── dbt                  # dbt wrapper script (./dbt run)
 ├── pyproject.toml       # Python deps (uv)
 ├── uv.lock
@@ -58,7 +58,7 @@ Kroger-Analysis/
     ├── kroger.duckdb
     └── staging/
         └── YYYY-MM-DD/
-            └── products.csv
+            └── products.parquet
 ```
 
 ---
@@ -66,11 +66,14 @@ Kroger-Analysis/
 ## Run Commands
 
 ```bash
-# 1. Extract + Load (API -> CSV staging -> DuckDB)
-uv run main.py
+# 1. Extract + Load (API -> Parquet staging -> DuckDB)
+make run            # or: uv run python main.py
 
 # 2. Transform
-./dbt run
+make dbt            # or: ./dbt run
+
+# 3. Both on a daily schedule (keep terminal open)
+make serve
 ```
 
 ---
@@ -104,8 +107,8 @@ KROGER_CLIENT_SECRET=your_client_secret
 ### 4. Run
 
 ```bash
-uv run main.py
-./dbt run
+make run   # extract + load
+make dbt   # transform
 ```
 
 ---
@@ -117,7 +120,7 @@ uv run main.py
 
 ### Raw Layer
 
-- `raw.kroger_products_YYYY_MM_DD` - Flat table per day (from CSV)
+- `raw.kroger_products_YYYY_MM_DD` - Flat table per day (loaded from Parquet staging)
 - `raw.kroger_products_all` - View union of all daily tables
 
 ### dbt Transform
@@ -168,3 +171,9 @@ Optimized ZIP codes: Alabama, Arizona, Arkansas, California, Colorado, Florida, 
 3. **Staging:** `save_to_staging_parquet()` writes `data/staging/YYYY-MM-DD/products.parquet`
 4. **Load:** `load_parquet_to_duckdb()` creates `raw.kroger_products_YYYY_MM_DD`, rebuilds `raw.kroger_products_all`
 5. **Transform:** dbt staging and marts read from raw.kroger_products_all
+
+---
+
+## Orchestration (Prefect)
+
+Optional: `prefect_flows.py` defines `kroger_daily_flow` (extract + load + dbt). Setup and schedules: [PREFECT.md](./PREFECT.md).
