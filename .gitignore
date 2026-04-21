@@ -5,6 +5,8 @@
 data/
 .venv
 logs/
+__pycache__/
+*.pyc
 
 # dbt
 dbt_packages/

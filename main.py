@@ -3,8 +3,6 @@ Kroger API - Extract & Load to DuckDB
 Get 200+ products per category using pagination, load raw data to DuckDB.
 """
 
-import csv
-import json
 import os
 from datetime import date
 from pathlib import Path
@@ -17,6 +15,23 @@ load_dotenv()
 
 DB_PATH = Path(__file__).resolve().parent / "data" / "kroger.duckdb"
 STAGING_DIR = Path(__file__).resolve().parent / "data" / "staging"  # one dir per day
+
+STAGING_COLUMNS = [
+    "State",
+    "Store Name",
+    "Store ID",
+    "Product Category",
+    "Product ID",
+    "Description",
+    "Brand",
+    "Regular Price",
+    "Promo Price",
+    "Size",
+]
+
+
+def _sql_quote_path(path: Path) -> str:
+    return str(path.resolve()).replace("'", "''")
 
 
 def get_load_date():
@@ -184,7 +199,7 @@ class KrogerAPI:
         return all_products
 
 
-def flatten_to_csv_rows(all_products_data):
+def flatten_product_rows(all_products_data):
     """squash api response into flat rows"""
     rows = []
     for state_data in all_products_data:
@@ -212,34 +227,44 @@ def flatten_to_csv_rows(all_products_data):
     return rows
 
 
-def save_to_staging_csv(rows, load_date_str):
-    """dump to data/staging/YYYY-MM-DD/products.csv"""
+def save_to_staging_parquet(rows, load_date_str):
+    """dump to data/staging/YYYY-MM-DD/products.parquet"""
     dir_path = STAGING_DIR / load_date_str
     dir_path.mkdir(parents=True, exist_ok=True)
-    csv_path = dir_path / "products.csv"
+    parquet_path = dir_path / "products.parquet"
     if not rows:
         print("No rows to save.")
         return None
-    fieldnames = ["State", "Store Name", "Store ID", "Product Category", "Product ID", "Description", "Brand", "Regular Price", "Promo Price", "Size"]
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
-    print(f"Saved {len(rows)} rows to {csv_path}")
-    return csv_path
+    col_defs = ", ".join(f'"{c}" VARCHAR' for c in STAGING_COLUMNS)
+    insert_cols = ", ".join(f'"{c}"' for c in STAGING_COLUMNS)
+    placeholders = ", ".join(["?"] * len(STAGING_COLUMNS))
+    mem = duckdb.connect(":memory:")
+    try:
+        mem.execute(f"CREATE TABLE staging ({col_defs})")
+        sql = f"INSERT INTO staging ({insert_cols}) VALUES ({placeholders})"
+        tuples = [tuple(r.get(c, "") for c in STAGING_COLUMNS) for r in rows]
+        mem.executemany(sql, tuples)
+        pq = _sql_quote_path(parquet_path)
+        mem.execute(f"COPY staging TO '{pq}' (FORMAT PARQUET)")
+    finally:
+        mem.close()
+    print(f"Saved {len(rows)} rows to {parquet_path}")
+    return parquet_path
 
 
-def load_csv_to_duckdb(csv_path, load_date_str):
+def load_parquet_to_duckdb(parquet_path: Path | str, load_date_str):
     """create table per day, rebuild union view"""
+    parquet_path = Path(parquet_path)
     table_name = f"kroger_products_{load_date_str.replace('-', '_')}"
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = duckdb.connect(str(DB_PATH))
     try:
         conn.execute("CREATE SCHEMA IF NOT EXISTS raw")
+        pq = _sql_quote_path(parquet_path)
         conn.execute(f"""
             CREATE OR REPLACE TABLE raw.{table_name} AS
             SELECT *, '{load_date_str}'::DATE as load_date
-            FROM read_csv_auto('{csv_path}', header=true)
+            FROM read_parquet('{pq}')
         """)
         tables = conn.execute("""
             SELECT table_name FROM information_schema.tables
@@ -250,7 +275,7 @@ def load_csv_to_duckdb(csv_path, load_date_str):
         if union_parts:
             union_sql = "CREATE OR REPLACE VIEW raw.kroger_products_all AS " + " UNION ALL ".join(union_parts)
             conn.execute(union_sql)
-        print(f"Loaded {table_name} from {csv_path}")
+        print(f"Loaded {table_name} from {parquet_path}")
         return True
     except Exception as e:
         print(f"Error loading to DuckDB: {e}")
@@ -258,48 +283,6 @@ def load_csv_to_duckdb(csv_path, load_date_str):
     finally:
         conn.close()
 
-
-def load_to_duckdb(all_products_data):
-    """
-    Load raw product data into DuckDB raw.kroger_products_raw table.
-    Inserts one row per state; raw_data column stores the full JSON for that state.
-    """
-    if not all_products_data:
-        print("No data to load to DuckDB.")
-        return False
-
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = duckdb.connect(str(DB_PATH))
-    try:
-        # Ensure table exists
-        conn.execute("CREATE SCHEMA IF NOT EXISTS raw")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS raw.kroger_products_raw (
-                id INTEGER PRIMARY KEY,
-                loaded_at TIMESTAMP DEFAULT current_timestamp,
-                raw_data JSON
-            )
-        """)
-        # Get next id
-        result = conn.execute(
-            "SELECT COALESCE(MAX(id), 0) + 1 FROM raw.kroger_products_raw"
-        ).fetchone()
-        next_id = result[0]
-        for i, state_data in enumerate(all_products_data):
-            conn.execute(
-                """
-                INSERT INTO raw.kroger_products_raw (id, raw_data)
-                VALUES (?, ?)
-                """,
-                [next_id + i, json.dumps(state_data)],
-            )
-        print(f"Loaded {len(all_products_data)} state(s) to DuckDB raw.kroger_products_raw")
-        return True
-    except Exception as e:
-        print(f"Error loading to DuckDB: {e}")
-        return False
-    finally:
-        conn.close()
 
 def main():    
     # Initialize API
@@ -418,16 +401,16 @@ def main():
             'search_results': store_search_results
         })
     
-    # --- STEP 3: staging csv + load to duckdb ---
+    # --- STEP 3: staging parquet + load to duckdb ---
     print("\n" + "=" * 90)
-    print("STEP 3: STAGING CSV + LOADING TO DUCKDB")
+    print("STEP 3: STAGING PARQUET + LOADING TO DUCKDB")
     print("=" * 90 + "\n")
 
     load_date_str = get_load_date()
-    rows = flatten_to_csv_rows(all_products_data)
-    csv_path = save_to_staging_csv(rows, load_date_str)
-    if csv_path:
-        load_csv_to_duckdb(str(csv_path), load_date_str)
+    rows = flatten_product_rows(all_products_data)
+    parquet_path = save_to_staging_parquet(rows, load_date_str)
+    if parquet_path:
+        load_parquet_to_duckdb(parquet_path, load_date_str)
     
     # --- Summary ---
     print("\n" + "=" * 90)
@@ -440,7 +423,7 @@ def main():
     print(f"   Total API calls: {api.api_calls}")
     print(f"   Total unique products: {total_products}")
     
-    print(f"\nData loaded to: data/staging/{load_date_str}/products.csv -> raw.kroger_products_{load_date_str.replace('-', '_')}")
+    print(f"\nData loaded to: data/staging/{load_date_str}/products.parquet -> raw.kroger_products_{load_date_str.replace('-', '_')}")
     
     print(f"\nAPI Rate Limit: 10,000 calls/day")
     print(f"   Used: {api.api_calls} calls")
