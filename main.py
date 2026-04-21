@@ -3,7 +3,6 @@ Kroger API - Extract & Load to DuckDB
 Get 200+ products per category using pagination, load raw data to DuckDB.
 """
 
-import json
 import os
 from datetime import date
 from pathlib import Path
@@ -284,48 +283,6 @@ def load_parquet_to_duckdb(parquet_path: Path | str, load_date_str):
     finally:
         conn.close()
 
-
-def load_to_duckdb(all_products_data):
-    """
-    Load raw product data into DuckDB raw.kroger_products_raw table.
-    Inserts one row per state; raw_data column stores the full JSON for that state.
-    """
-    if not all_products_data:
-        print("No data to load to DuckDB.")
-        return False
-
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = duckdb.connect(str(DB_PATH))
-    try:
-        # Ensure table exists
-        conn.execute("CREATE SCHEMA IF NOT EXISTS raw")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS raw.kroger_products_raw (
-                id INTEGER PRIMARY KEY,
-                loaded_at TIMESTAMP DEFAULT current_timestamp,
-                raw_data JSON
-            )
-        """)
-        # Get next id
-        result = conn.execute(
-            "SELECT COALESCE(MAX(id), 0) + 1 FROM raw.kroger_products_raw"
-        ).fetchone()
-        next_id = result[0]
-        for i, state_data in enumerate(all_products_data):
-            conn.execute(
-                """
-                INSERT INTO raw.kroger_products_raw (id, raw_data)
-                VALUES (?, ?)
-                """,
-                [next_id + i, json.dumps(state_data)],
-            )
-        print(f"Loaded {len(all_products_data)} state(s) to DuckDB raw.kroger_products_raw")
-        return True
-    except Exception as e:
-        print(f"Error loading to DuckDB: {e}")
-        return False
-    finally:
-        conn.close()
 
 def main():    
     # Initialize API
