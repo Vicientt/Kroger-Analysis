@@ -1,10 +1,10 @@
 version: 2
 
-# raw.kroger_products_all = union of raw.kroger_products_YYYY_MM_DD (flat csv)
+# raw.kroger_products_all = union of raw.kroger_products_YYYY_MM_DD (loaded from Parquet staging)
 sources:
   - name: kroger_raw
     schema: raw
-    description: Raw Kroger product data, csv loaded per day
+    description: Raw Kroger product data, Parquet loaded per day
     tables:
       - name: kroger_products_all
         description: "View union of raw.kroger_products_YYYY_MM_DD tables"
