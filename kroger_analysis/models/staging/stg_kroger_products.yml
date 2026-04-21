@@ -2,7 +2,7 @@ version: 2
 
 models:
   - name: stg_kroger_products
-    description: Staging model - flattened product data from raw JSON (one row per product per store per category)
+    description: flattened product data from raw csv (one row per product)
     columns:
       - name: state
       - name: store_id
@@ -14,3 +14,4 @@ models:
       - name: regular_price
       - name: promo_price
       - name: size
+      - name: load_date
