@@ -164,7 +164,7 @@ Optimized ZIP codes: Alabama, Arizona, Arkansas, California, Colorado, Florida, 
 ## Data Flow
 
 1. **Extract:** API returns products per store per category
-2. **Flatten:** `flatten_to_csv_rows()` converts to flat rows
-3. **Staging:** `save_to_staging_csv()` writes `data/staging/YYYY-MM-DD/products.csv`
-4. **Load:** `load_csv_to_duckdb()` creates `raw.kroger_products_YYYY_MM_DD`, rebuilds `raw.kroger_products_all`
+2. **Flatten:** `flatten_product_rows()` converts to flat rows
+3. **Staging:** `save_to_staging_parquet()` writes `data/staging/YYYY-MM-DD/products.parquet`
+4. **Load:** `load_parquet_to_duckdb()` creates `raw.kroger_products_YYYY_MM_DD`, rebuilds `raw.kroger_products_all`
 5. **Transform:** dbt staging and marts read from raw.kroger_products_all
